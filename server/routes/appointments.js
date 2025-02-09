@@ -67,7 +67,7 @@ router.get('/appointments', authenticate, async (req, res) => {
             elderlyUserId = caretaker.elderlyUser;
 
             if (!elderlyUserId) {
-                return res.status(400).json({ message: 'No elderly user assigned.' });
+                return res.status(200).json([]);  // Empty array
             }
         } else if (req.user.role === 'elderly') {
             // Elderly User: Use their own ID
