@@ -35,26 +35,50 @@ router.post('/signup', async (req, res) => {
     }
 });
 
-// Login
+// Generic Login Route
 router.post('/login', async (req, res) => {
     try {
         const { username, password } = req.body;
 
-        const user = await User.findOne({ username });
-        if (!user) return res.status(400).json({ message: 'Invalid credentials' });
+        // Find the user by username
+        const user = await User.findOne({ username })
+            .populate('elderlyUser') // Populate if caretaker
+            .populate('appointments'); // Populate if elderly
 
+        if (!user) {
+            return res.status(400).json({ message: 'Invalid credentials' });
+        }
+
+        // Compare Password
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
+        if (!isMatch) {
+            return res.status(400).json({ message: 'Invalid credentials' });
+        }
 
+        // Generate JWT
         const token = jwt.sign(
             { userId: user._id, role: user.role },
             process.env.JWT_SECRET,
             { expiresIn: '1h' }
         );
 
-        res.json({ message: 'Login successful', token });
+        // Send Role-Based Data
+        const responseData = {
+            message: 'Login successful',
+            token,
+            user: {
+                name: user.name,
+                role: user.role,
+                ...(user.role === 'caretaker'
+                    ? { elderlyUser: user.elderlyUser }
+                    : { appointments: user.appointments, medicalCondition: user.medicalCondition })
+            }
+        };
+
+        res.json(responseData);
     } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
+        console.error(error);
+        res.status(500).json({ message: 'Server error', error });
     }
 });
 

@@ -9,7 +9,7 @@ const router = express.Router();
 // Route to add an elderly person (only for caretakers)
 router.post('/add', authenticate, async (req, res) => {
     try {
-        const { name, username, password, medicalCondition } = req.body;
+        const { name, username, password, medicalCondition, age, gender, relationToCaregiver } = req.body;
 
         // Ensure the logged-in user is a caretaker
         if (req.user.role !== 'caretaker') {
@@ -35,12 +35,22 @@ router.post('/add', authenticate, async (req, res) => {
             role: 'elderly',
             medicalCondition,
             caretaker: req.user.userId, // Link to caretaker
+            age,
+            gender,
+            relationToCaregiver,
         });
 
         await elderlyUser.save();
 
-        // Update caretaker's elderlyUsers array
-        await User.findByIdAndUpdate(req.user.userId, { $push: { elderlyUsers: elderlyUser._id } });
+        const caretaker = await User.findById(req.user.userId);
+
+        if (caretaker.elderlyUser) {
+            return res.status(400).json({ message: 'You already have an assigned elderly user.' });
+        }
+
+
+        // Assign the elderly user to the caretaker
+        await User.findByIdAndUpdate(req.user.userId, { elderlyUser: elderlyUser._id });
 
         res.status(201).json({ message: 'Elderly user added successfully' });
     } catch (error) {

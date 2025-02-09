@@ -2,6 +2,7 @@
 const express = require('express');
 const Appointment = require('../models/Appointment');
 const User = require('../models/User');
+const authenticate = require('../middleware/authorize');
 
 const router = express.Router();
 
@@ -15,32 +16,72 @@ const isCaretaker = async (req, res, next) => {
     }
 };
 
-// ✅ Create Appointment (Caretaker Only)
-router.post('/add', isCaretaker, async (req, res) => {
+// Add Appointment (Caretaker Only)
+router.post('/add', authenticate, async (req, res) => {
     try {
-        const { date, location, doctor, elderlyUser, caretaker } = req.body;
+        const { date, location, doctor} = req.body;
 
-        const newAppointment = new Appointment({
+        // Ensure the requester is a caretaker
+        if (req.user.role !== 'caretaker') {
+            return res.status(403).json({ message: 'Only caretakers can add appointments.' });
+        }
+
+        // Get the caretaker's record
+        const caretaker = await User.findById(req.user.userId).populate('elderlyUser');
+
+        // Check if caretaker has an assigned elderly user
+        if (!caretaker.elderlyUser) {
+            return res.status(400).json({ message: 'You have no assigned elderly user.' });
+        }
+
+        // Create new appointment
+        const appointment = new Appointment({
             date,
             location,
             doctor,
-            elderlyUser,
-            caretaker
+            elderlyUser: caretaker.elderlyUser._id,
+            caretaker: caretaker._id
         });
 
-        await newAppointment.save();
-        res.status(201).json({ message: 'Appointment created successfully', appointment: newAppointment });
+        await appointment.save();
+
+        // Add appointment to elderly user's record
+        caretaker.elderlyUser.appointments.push(appointment._id);
+        await caretaker.elderlyUser.save();
+
+        res.status(201).json({ message: 'Appointment added successfully', appointment });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ message: 'Server error', error });
     }
 });
 
-// 📋 Get All Appointments for an Elderly User
-router.get('/elderly/:id', async (req, res) => {
+// 📋 Get Appointments for the Elderly User (Accessible by Caretaker & Elderly User)
+router.get('/appointments', authenticate, async (req, res) => {
     try {
-        const appointments = await Appointment.find({ elderlyUser: req.params.id });
+        let elderlyUserId;
+
+        if (req.user.role === 'caretaker') {
+            // Caretaker: Get the assigned elderly user
+            const caretaker = await User.findById(req.user.userId);
+            elderlyUserId = caretaker.elderlyUser;
+
+            if (!elderlyUserId) {
+                return res.status(400).json({ message: 'No elderly user assigned.' });
+            }
+        } else if (req.user.role === 'elderly') {
+            // Elderly User: Use their own ID
+            elderlyUserId = req.user.userId;
+        } else {
+            return res.status(403).json({ message: 'Unauthorized access.' });
+        }
+
+        // Fetch appointments for the elderly user
+        const appointments = await Appointment.find({ elderlyUser: elderlyUserId });
+
         res.status(200).json(appointments);
     } catch (error) {
+        console.error(error);
         res.status(500).json({ message: 'Server error', error });
     }
 });
